@@ -1,28 +1,47 @@
+import { TRPCError } from "@trpc/server";
+import { z } from "zod";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
+import { createRegistration, listEvents } from "./db";
+
+const ACCESS_CODE = "鍘美搶票大行動";
 
 export const appRouter = router({
-    // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
   system: systemRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
-      return {
-        success: true,
-      } as const;
+      return { success: true } as const;
     }),
   }),
-
-  // TODO: add feature routers here, e.g.
-  // todo: router({
-  //   list: protectedProcedure.query(({ ctx }) =>
-  //     db.getUserTodos(ctx.user.id)
-  //   ),
-  // }),
+  access: router({
+    verify: publicProcedure.input(z.object({ code: z.string().max(80) })).mutation(({ input }) => ({
+      verified: input.code.trim() === ACCESS_CODE,
+    })),
+  }),
+  events: router({
+    list: publicProcedure.query(() => listEvents()),
+  }),
+  registrations: router({
+    create: publicProcedure
+      .input(
+        z.object({
+          eventSlug: z.string().min(1).max(32),
+          name: z.string().trim().min(1, "請輸入名字").max(120),
+          people: z.number().int().min(1, "至少登記 1 人").max(10, "單次最多 10 人"),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        const result = await createRegistration(input.eventSlug, input.name, input.people);
+        if (result.kind === "not_found") throw new TRPCError({ code: "NOT_FOUND", message: "找不到這場活動" });
+        if (result.kind === "full") throw new TRPCError({ code: "CONFLICT", message: `名額不足，目前只剩 ${result.remaining} 個名額` });
+        return result;
+      }),
+  }),
 });
 
 export type AppRouter = typeof appRouter;
