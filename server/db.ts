@@ -1,114 +1,26 @@
 import { and, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { events, InsertUser, registrations, users } from "../drizzle/schema";
+import { events, InsertUser, registrations, tableLeaders, users } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
+export async function getDb() { if (!_db && process.env.DATABASE_URL) { try { _db = drizzle(process.env.DATABASE_URL); } catch (error) { console.warn("[Database] Failed to connect:", error); _db = null; } } return _db; }
+export async function upsertUser(user: InsertUser): Promise<void> { if (!user.openId) throw new Error("User openId is required for upsert"); const db=await getDb(); if(!db)return; const values:InsertUser={openId:user.openId}; const updateSet:Record<string,unknown>={}; for(const field of ["name","email","loginMethod"] as const){if(user[field]!==undefined){values[field]=user[field]??null;updateSet[field]=user[field]??null;}} values.lastSignedIn=user.lastSignedIn??new Date(); updateSet.lastSignedIn=values.lastSignedIn; if(user.role!==undefined){values.role=user.role;updateSet.role=user.role;}else if(user.openId===ENV.ownerOpenId){values.role="admin";updateSet.role="admin";} await db.insert(users).values(values).onDuplicateKeyUpdate({set:updateSet}); }
+export async function getUserByOpenId(openId:string){const db=await getDb();if(!db)return undefined;const r=await db.select().from(users).where(eq(users.openId,openId)).limit(1);return r[0];}
 
-export async function getDb() {
-  if (!_db && process.env.DATABASE_URL) {
-    try {
-      _db = drizzle(process.env.DATABASE_URL);
-    } catch (error) {
-      console.warn("[Database] Failed to connect:", error);
-      _db = null;
-    }
-  }
-  return _db;
-}
+export async function listEvents(){const db=await getDb();if(!db)throw new Error("Database is not available");const rows=await db.select({event:events,registration:registrations}).from(events).leftJoin(registrations,eq(events.id,registrations.eventId)).orderBy(events.id,registrations.id);const grouped=new Map<number,(typeof rows)[number]["event"]&{registrations:{id:number;name:string;people:number}[]}>();for(const row of rows){const e=grouped.get(row.event.id);if(e){if(row.registration)e.registrations.push({id:row.registration.id,name:row.registration.name,people:row.registration.people});continue;}grouped.set(row.event.id,{...row.event,registrations:row.registration?[{id:row.registration.id,name:row.registration.name,people:row.registration.people}]:[]});}return Array.from(grouped.values());}
 
-export async function upsertUser(user: InsertUser): Promise<void> {
-  if (!user.openId) throw new Error("User openId is required for upsert");
-  const db = await getDb();
-  if (!db) return;
+export async function createRegistration(eventSlug:string,name:string,people:number){const db=await getDb();if(!db)throw new Error("Database is not available");return db.transaction(async tx=>{const selected=await tx.select().from(events).where(eq(events.slug,eventSlug)).limit(1);const event=selected[0];if(!event)return{kind:"not_found" as const};if(event.booked+people>event.capacity)return{kind:"full" as const,remaining:event.capacity-event.booked};const updated=await tx.update(events).set({booked:sql`${events.booked}+${people}`}).where(and(eq(events.id,event.id),sql`${events.booked}+${people}<=${events.capacity}`));if(!updated[0].affectedRows){const cur=await tx.select().from(events).where(eq(events.id,event.id)).limit(1);return{kind:"full" as const,remaining:Math.max(0,event.capacity-(cur[0]?.booked??event.booked))};}await tx.insert(registrations).values({eventId:event.id,name,people,leaderId:null});return{kind:"created" as const,eventLabel:event.label,dateLabel:event.dateLabel,name,people,remaining:event.capacity-event.booked-people};});}
 
-  const values: InsertUser = { openId: user.openId };
-  const updateSet: Record<string, unknown> = {};
-  const textFields = ["name", "email", "loginMethod"] as const;
-  for (const field of textFields) {
-    if (user[field] !== undefined) {
-      values[field] = user[field] ?? null;
-      updateSet[field] = user[field] ?? null;
-    }
-  }
-  if (user.lastSignedIn !== undefined) {
-    values.lastSignedIn = user.lastSignedIn;
-    updateSet.lastSignedIn = user.lastSignedIn;
-  } else {
-    values.lastSignedIn = new Date();
-    updateSet.lastSignedIn = new Date();
-  }
-  if (user.role !== undefined) {
-    values.role = user.role;
-    updateSet.role = user.role;
-  } else if (user.openId === ENV.ownerOpenId) {
-    values.role = "admin";
-    updateSet.role = "admin";
-  }
+const LEADER_CODES = ["921","922a","922b"] as const;
+const leaderEventMap:Record<string,string>={"921":"9-21","922a":"9-22A","922b":"9-22B"};
+export function isLeaderCode(code:string){return LEADER_CODES.includes(code as (typeof LEADER_CODES)[number]);}
+async function loadLeader(tx:any,code:string){const found=await tx.select({leader:tableLeaders,event:events}).from(tableLeaders).innerJoin(events,eq(tableLeaders.eventId,events.id)).where(eq(tableLeaders.code,code)).limit(1);return found[0];}
+async function leaderState(tx:any,row:any){const regs=await tx.select({id:registrations.id,name:registrations.name,people:registrations.people}).from(registrations).where(and(eq(registrations.leaderId,row.leader.id),eq(registrations.eventId,row.event.id)));return {...row.leader,eventId:row.event.id,eventSlug:row.event.slug,eventLabel:row.event.label,dateLabel:row.event.dateLabel,capacity:row.event.capacity,registrations:regs,remaining:row.event.capacity-row.event.booked};}
 
-  await db.insert(users).values(values).onDuplicateKeyUpdate({ set: updateSet });
-}
-
-export async function getUserByOpenId(openId: string) {
-  const db = await getDb();
-  if (!db) return undefined;
-  const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
-  return result[0];
-}
-
-export async function listEvents() {
-  const db = await getDb();
-  if (!db) throw new Error("Database is not available");
-  const rows = await db
-    .select({ event: events, registration: registrations })
-    .from(events)
-    .leftJoin(registrations, eq(events.id, registrations.eventId))
-    .orderBy(events.id, registrations.id);
-
-  const grouped = new Map<number, (typeof rows)[number]["event"] & { registrations: { name: string; people: number }[] }>();
-  for (const row of rows) {
-    const existing = grouped.get(row.event.id);
-    if (existing) {
-      if (row.registration) existing.registrations.push({ name: row.registration.name, people: row.registration.people });
-      continue;
-    }
-    grouped.set(row.event.id, {
-      ...row.event,
-      registrations: row.registration ? [{ name: row.registration.name, people: row.registration.people }] : [],
-    });
-  }
-  return Array.from(grouped.values());
-}
-
-export async function createRegistration(eventSlug: string, name: string, people: number) {
-  const db = await getDb();
-  if (!db) throw new Error("Database is not available");
-
-  return db.transaction(async tx => {
-    const selected = await tx.select().from(events).where(eq(events.slug, eventSlug)).limit(1);
-    const event = selected[0];
-    if (!event) return { kind: "not_found" as const };
-    if (event.booked + people > event.capacity) return { kind: "full" as const, remaining: event.capacity - event.booked };
-
-    const updateResult = await tx
-      .update(events)
-      .set({ booked: sql`${events.booked} + ${people}` })
-      .where(and(eq(events.id, event.id), sql`${events.booked} + ${people} <= ${events.capacity}`));
-
-    if (!updateResult[0].affectedRows) {
-      const current = await tx.select().from(events).where(eq(events.id, event.id)).limit(1);
-      const currentEvent = current[0] ?? event;
-      return { kind: "full" as const, remaining: Math.max(0, currentEvent.capacity - currentEvent.booked) };
-    }
-
-    await tx.insert(registrations).values({ eventId: event.id, name, people });
-    return {
-      kind: "created" as const,
-      eventLabel: event.label,
-      dateLabel: event.dateLabel,
-      name,
-      people,
-      remaining: event.capacity - event.booked - people,
-    };
-  });
-}
+export async function getLeader(code:string){const db=await getDb();if(!db)return null;const found=await db.select({leader:tableLeaders,event:events}).from(tableLeaders).innerJoin(events,eq(tableLeaders.eventId,events.id)).where(eq(tableLeaders.code,code)).limit(1);const row=found[0];if(!row)return null;return leaderState(db,row);}
+export async function updateLeader(code:string,name:string,people:number){const db=await getDb();if(!db)throw new Error("Database is not available");return db.transaction(async tx=>{const row=await loadLeader(tx,code);if(!row)return null;const regs=await tx.select({people:registrations.people}).from(registrations).where(eq(registrations.leaderId,row.leader.id));const minPeople=1+regs.reduce((s,r)=>s+r.people,0);if(people<minPeople)return{kind:"invalid" as const,minPeople};const delta=people-row.leader.people;if(row.event.booked+delta>row.event.capacity)return{kind:"full" as const,remaining:row.event.capacity-row.event.booked};if(delta!==0){const u=await tx.update(events).set({booked:sql`${events.booked}+${delta}`}).where(and(eq(events.id,row.event.id),sql`${events.booked}+${delta}>=0`,sql`${events.booked}+${delta}<=${events.capacity}`));if(!u[0].affectedRows)return{kind:"full" as const,remaining:row.event.capacity-row.event.booked};}await tx.update(tableLeaders).set({name,people}).where(eq(tableLeaders.id,row.leader.id));return leaderState(tx,row);});}
+export async function addLeaderParticipant(code:string,name:string,people:number){const db=await getDb();if(!db)throw new Error("Database is not available");return db.transaction(async tx=>{const row=await loadLeader(tx,code);if(!row)return null;if(row.event.booked+people>row.event.capacity)return{kind:"full" as const,remaining:row.event.capacity-row.event.booked};await tx.insert(registrations).values({eventId:row.event.id,leaderId:row.leader.id,name,people});await tx.update(tableLeaders).set({people:sql`${tableLeaders.people}+${people}`}).where(eq(tableLeaders.id,row.leader.id));await tx.update(events).set({booked:sql`${events.booked}+${people}`}).where(eq(events.id,row.event.id));return leaderState(tx,row);});}
+export async function updateLeaderParticipant(code:string,id:number,people:number){const db=await getDb();if(!db)throw new Error("Database is not available");return db.transaction(async tx=>{const row=await loadLeader(tx,code);if(!row)return null;const reg=(await tx.select().from(registrations).where(and(eq(registrations.id,id),eq(registrations.leaderId,row.leader.id))).limit(1))[0];if(!reg)return null;const delta=people-reg.people;if(delta>0&&row.event.booked+delta>row.event.capacity)return{kind:"full" as const,remaining:row.event.capacity-row.event.booked};await tx.update(registrations).set({people}).where(eq(registrations.id,id));if(delta!==0){await tx.update(tableLeaders).set({people:sql`${tableLeaders.people}+${delta}`}).where(eq(tableLeaders.id,row.leader.id));await tx.update(events).set({booked:sql`${events.booked}+${delta}`}).where(eq(events.id,row.event.id));}return leaderState(tx,row);});}
+export async function deleteLeaderParticipant(code:string,id:number){const db=await getDb();if(!db)throw new Error("Database is not available");return db.transaction(async tx=>{const row=await loadLeader(tx,code);if(!row)return null;const reg=(await tx.select().from(registrations).where(and(eq(registrations.id,id),eq(registrations.leaderId,row.leader.id))).limit(1))[0];if(!reg)return null;await tx.delete(registrations).where(eq(registrations.id,id));await tx.update(tableLeaders).set({people:sql`${tableLeaders.people}-${reg.people}`}).where(eq(tableLeaders.id,row.leader.id));await tx.update(events).set({booked:sql`${events.booked}-${reg.people}`}).where(eq(events.id,row.event.id));return leaderState(tx,row);});}
+EOF
