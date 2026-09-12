@@ -6,7 +6,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
 import { createRegistration, listEvents } from "./db";
 
-const ACCESS_CODE = "鍘美搶票大行動";
+const ACCESS_CODE = "鍘美搶桌大行動";
 
 export const appRouter = router({
   system: systemRouter,

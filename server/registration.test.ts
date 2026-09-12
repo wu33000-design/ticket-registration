@@ -14,13 +14,13 @@ describe("registration access", () => {
   it("accepts the configured access code and rejects other codes", async () => {
     const caller = appRouter.createCaller(createContext());
 
-    await expect(caller.access.verify({ code: "鍘美搶票大行動" })).resolves.toEqual({ verified: true });
+    await expect(caller.access.verify({ code: "鍘美搶桌大行動" })).resolves.toEqual({ verified: true });
     await expect(caller.access.verify({ code: "錯誤驗證碼" })).resolves.toEqual({ verified: false });
   });
 
   it("trims whitespace around the configured access code", async () => {
     const caller = appRouter.createCaller(createContext());
-    await expect(caller.access.verify({ code: "  鍘美搶票大行動  " })).resolves.toEqual({ verified: true });
+    await expect(caller.access.verify({ code: "  鍘美搶桌大行動  " })).resolves.toEqual({ verified: true });
   });
 });
 
