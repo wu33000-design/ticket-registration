@@ -10,6 +10,7 @@ type EventItem = {
   dateLabel: string;
   capacity: number;
   booked: number;
+  registrations: { name: string; people: number }[];
 };
 
 type Receipt = {
@@ -21,9 +22,9 @@ type Receipt = {
 };
 
 const FALLBACK_EVENTS: EventItem[] = [
-  { id: 1, slug: "9-21", label: "9/21", dateLabel: "9 月 21 日｜第一場", capacity: 10, booked: 0 },
-  { id: 2, slug: "9-22A", label: "9/22 A", dateLabel: "9 月 22 日｜A 場", capacity: 10, booked: 0 },
-  { id: 3, slug: "9-22B", label: "9/22 B", dateLabel: "9 月 22 日｜B 場", capacity: 10, booked: 0 },
+  { id: 1, slug: "9-21", label: "9/21", dateLabel: "9 月 21 日｜第一場", capacity: 10, booked: 0, registrations: [] },
+  { id: 2, slug: "9-22A", label: "9/22 A", dateLabel: "9 月 22 日｜A 場", capacity: 10, booked: 0, registrations: [] },
+  { id: 3, slug: "9-22B", label: "9/22 B", dateLabel: "9 月 22 日｜B 場", capacity: 10, booked: 0, registrations: [] },
 ];
 
 export default function Home() {
@@ -120,7 +121,7 @@ export default function Home() {
       <section className="hero"><div><p className="eyebrow">SEPTEMBER / REGISTRATION</p><h1>選擇場次，<br /><em>完成登記。</em></h1></div><div className="hero-note"><span>01</span><p>三場活動<br />每場限額 10 人</p></div></section>
       <div className="content-grid">
         <section className="events-panel"><div className="section-heading"><div><span className="section-index">01 / SELECT</span><h2>選擇活動場次</h2></div><span className="live-count">即時名額</span></div>
-          <div className="event-list">{eventList.map((event, index) => { const spots = event.capacity - event.booked; const isSelected = selected?.slug === event.slug; return <button key={event.slug} className={`event-card ${isSelected ? "selected" : ""}`} onClick={() => { setSelectedSlug(event.slug); setPeople(Math.min(people, Math.max(spots, 1))); }}><span className="event-number">0{index + 1}</span><span className="event-info"><strong>{event.label}</strong><span>{event.dateLabel}</span></span><span className={`spots ${spots === 0 ? "sold-out" : ""}`}><b>{spots}</b> / {event.capacity}<small>{spots === 0 ? "已額滿" : "剩餘"}</small></span><ChevronRight className="event-arrow" size={18} /></button>; })}</div>
+          <div className="event-list">{eventList.map((event, index) => { const spots = event.capacity - event.booked; const isSelected = selected?.slug === event.slug; return <button key={event.slug} className={`event-card ${isSelected ? "selected" : ""}`} onClick={() => { setSelectedSlug(event.slug); setPeople(Math.min(people, Math.max(spots, 1))); }}><span className="event-number">0{index + 1}</span><span className="event-info"><strong>{event.label}</strong><span>{event.dateLabel}</span></span><span className="registered-list" aria-label="已登記名單">{event.registrations.length > 0 ? event.registrations.map((registration, registrationIndex) => <span key={`${event.slug}-${registration.name}-${registration.people}-${registrationIndex}`}>{registration.name} ({registration.people}位)</span>) : <span className="no-registrations">尚無登記</span>}</span><span className={`spots ${spots === 0 ? "sold-out" : ""}`}><b>{spots}</b> / {event.capacity}<small>{spots === 0 ? "已額滿" : "剩餘"}</small></span><ChevronRight className="event-arrow" size={18} /></button>; })}</div>
           <div className="capacity-note"><Users size={15} /> 名額會隨登記即時更新，額滿後將無法選取人數。</div>
         </section>
         <section className="form-panel"><div className="section-heading"><div><span className="section-index">02 / DETAILS</span><h2>填寫登記資料</h2></div><span className="selected-tag">{selected?.label}</span></div>

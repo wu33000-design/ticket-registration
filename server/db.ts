@@ -59,7 +59,25 @@ export async function getUserByOpenId(openId: string) {
 export async function listEvents() {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  return db.select().from(events).orderBy(events.id);
+  const rows = await db
+    .select({ event: events, registration: registrations })
+    .from(events)
+    .leftJoin(registrations, eq(events.id, registrations.eventId))
+    .orderBy(events.id, registrations.id);
+
+  const grouped = new Map<number, (typeof rows)[number]["event"] & { registrations: { name: string; people: number }[] }>();
+  for (const row of rows) {
+    const existing = grouped.get(row.event.id);
+    if (existing) {
+      if (row.registration) existing.registrations.push({ name: row.registration.name, people: row.registration.people });
+      continue;
+    }
+    grouped.set(row.event.id, {
+      ...row.event,
+      registrations: row.registration ? [{ name: row.registration.name, people: row.registration.people }] : [],
+    });
+  }
+  return Array.from(grouped.values());
 }
 
 export async function createRegistration(eventSlug: string, name: string, people: number) {
