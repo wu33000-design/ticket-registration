@@ -5,7 +5,7 @@ CREATE TABLE `tableLeaders` (
 	`name` varchar(120) NOT NULL DEFAULT '桌長',
 	`people` int NOT NULL DEFAULT 1,
 	`createdAt` timestamp NOT NULL DEFAULT (now()),
-	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE now(),
+	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
 	CONSTRAINT `tableLeaders_id` PRIMARY KEY(`id`),
 	CONSTRAINT `tableLeaders_code_unique` UNIQUE(`code`)
 );
