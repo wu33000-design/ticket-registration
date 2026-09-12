@@ -23,9 +23,20 @@ export const events = mysqlTable("events", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
+export const tableLeaders = mysqlTable("tableLeaders", {
+  id: int("id").autoincrement().primaryKey(),
+  code: varchar("code", { length: 32 }).notNull().unique(),
+  eventId: int("eventId").notNull(),
+  name: varchar("name", { length: 120 }).notNull().default("桌長"),
+  people: int("people").notNull().default(1),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
 export const registrations = mysqlTable("registrations", {
   id: int("id").autoincrement().primaryKey(),
   eventId: int("eventId").notNull(),
+  leaderId: int("leaderId"),
   name: varchar("name", { length: 120 }).notNull(),
   people: int("people").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -34,4 +45,5 @@ export const registrations = mysqlTable("registrations", {
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 export type Event = typeof events.$inferSelect;
+export type TableLeader = typeof tableLeaders.$inferSelect;
 export type Registration = typeof registrations.$inferSelect;
